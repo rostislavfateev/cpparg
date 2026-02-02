@@ -15,6 +15,7 @@
 // system
 #include <string>
 #include <vector>
+#include <set> //#include <flat_set>
 #include <functional> // std::function
 #include <algorithm>  // 
 #include <optional>   // std::optional
@@ -113,6 +114,10 @@ namespace argparse
                     requires (!std::is_convertible_v<action_f, void(*)()>) {
         }
 
+        bool operator<(const argument& other) const {
+            return name_ < other.name_;
+        }
+
         /// @todo may be templated by container type?
         inline void consume(std::vector<std::string>& tokens) {
             /// @todo implement
@@ -140,6 +145,71 @@ namespace argparse
         std::string                 description_;
     };
 
+
+    /// @brief Argument group implementation
+    ///
+    /// A collection of arguments.
+    class group {
+    public:
+
+        group(std::string&& id = "default") : id_(std::move(id)) {}
+
+        inline void add_argument(argument&& arg) {
+            args_.insert(std::move(arg));
+        }
+
+        inline void consume(std::vector<std::string>& tokens) {
+            auto arg = args_.find(tokens.begin());
+            if (arg != args_.end()) {
+                arg->consume(tokens);
+            }
+        }
+
+    private:
+
+        std::string id_;
+        //std::flat_set<argument> args_;
+        std::set<argument> args_;
+    };
+
+
+    /// @brief  Parser implementation
+    ///
+    /// Encapsulates positional and optional argument groups.
+    class parser {
+    public:
+        
+        parser(std::string&& description = "") : positional_("positional"),
+                                                 optional_({ std::move(description) }) {}
+        
+        void add_argument_group(group&& group) {
+            optional_.insert(std::move(group));
+        }
+
+        void parse_args(size_t argc, char* argv[]) {
+            std::vector<std::string> tokens;
+            for (size_t i = 0; i < argc; ++i) {
+                tokens.emplace_back(argv[i]);
+            }
+
+            // Consume optional arguments first
+            std::for_each(optional_.begin(), optional_.end(),
+                [&tokens](group& grp) {
+                    grp.consume(tokens);
+            });
+
+            // Then consume positional arguments
+            positional_.consume(tokens);
+        }
+
+
+    private:
+
+        group                   positional_;
+        //std::flat_set<group>    optional_;
+        std::set<group>    optional_;
+    };
+
 } // namespace argparse
 
 
@@ -148,6 +218,72 @@ namespace argparse
 //------------------------------------------------------------------------------
 // (none)
 
+
+
+/// @todo get rid of junk
+//-----------------------------------------------------------------------------------------------------------------------
+/*
+// some lambda action inspirations
+            template<typename T>
+            Action(std::string&& name,
+                   T& placeholder) : name_(std::move(name))
+            {
+                if (name == "store")
+                {
+                    // Also store_default
+                    action_ = [&placeholder](const std::string& value)
+                    {
+                        if (value.empty())
+                        {
+                            // Special handling for boolean
+                            if constexpr (std::is_same_v<T, bool>)
+                            {
+                                placeholder = Converter::convert<T>("1");
+                            }
+                        }
+                        else
+                        {
+                            placeholder = Converter::convert<T>(value);
+                        }                   
+                    };
+                }
+                else if (name == "count")
+                {
+                    if constexpr (type::traits::is_incrementable<T>())
+                    {
+                        action_ = [&placeholder](const std::string& value)
+                        {
+                            placeholder++;
+                        };
+                    }
+                }
+                else
+                {
+                    // fallthrough so that Action children will be able to extend
+                    // the functionality.
+                    name_ = "error";
+                }        
+            } // End: Action::Action()
+
+
+
+// const static map in Count class
+
+    class Count {
+        private:
+
+            inline static const std::map<std::string, Type> DEFAULTS = {
+                { "?", Type::AT_MOST_ONE},
+                { "*", Type::ANY},
+                { "+", Type::AT_LEAST_ONE},
+            };
+    
+        public:
+
+            Type        type_;
+            uint8_t     value_;
+        }; // class Count
+*/
 
 #endif // CPPARG_ARGUMENT_HPP
 
