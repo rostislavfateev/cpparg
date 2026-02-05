@@ -15,7 +15,8 @@
 // system
 #include <string>
 #include <vector>
-#include <set> //#include <flat_set>
+//#include <set> //#include <flat_set>
+#include <map>
 #include <functional> // std::function
 #include <algorithm>  // 
 #include <optional>   // std::optional
@@ -152,24 +153,26 @@ namespace argparse
     class group {
     public:
 
-        group(std::string&& id = "default") : id_(std::move(id)) {}
+        group(std::string&& id = "default") : id_(std::move(id)) {
+        }
 
         inline void add_argument(argument&& arg) {
-            args_.insert(std::move(arg));
+            args_.insert({arg.name_, std::move(arg)});
         }
 
         inline void consume(std::vector<std::string>& tokens) {
-            auto arg = args_.find(tokens.begin());
+            auto arg = args_.find(*tokens.begin());
             if (arg != args_.end()) {
-                arg->consume(tokens);
+                arg->second.consume(tokens);
             }
         }
 
-    private:
-
+    public:
         std::string id_;
+
+    private:
         //std::flat_set<argument> args_;
-        std::set<argument> args_;
+        std::map<std::string, argument> args_;
     };
 
 
@@ -179,11 +182,20 @@ namespace argparse
     class parser {
     public:
         
-        parser(std::string&& description = "") : positional_("positional"),
-                                                 optional_({ std::move(description) }) {}
+        parser(std::string&& description = "optional") : positional_("positional"),
+                                                         optional_({ description,
+                                                                     std::move(description) }) {
+        }
         
         void add_argument_group(group&& group) {
-            optional_.insert(std::move(group));
+            optional_.insert({group.id_, std::move(group)});
+        }
+
+        void add_argument(const std::string& groupName,
+                          argument&& arg) {
+            //auto& target  = (arg.name_)
+            //groupName = (groupName.empty() ? "default" : groupName);
+
         }
 
         void parse_args(size_t argc, char* argv[]) {
@@ -205,9 +217,9 @@ namespace argparse
 
     private:
 
-        group                   positional_;
+        group                           positional_;
         //std::flat_set<group>    optional_;
-        std::set<group>    optional_;
+        std::map<std::string, group>    optional_;
     };
 
 } // namespace argparse
