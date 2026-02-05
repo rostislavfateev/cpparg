@@ -1,45 +1,46 @@
-//##############################################################################
+//##################################################################################################
 ///
 /// @file include/converter.hpp
 /// 
 /// @brief Implementation of converter entity.
 ///
-//##############################################################################
+//##################################################################################################
 
 #if !defined(CPPARG_CONVERTER_HPP)
 #define CPPARG_CONVERTER_HPP
 
-//------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 // includes
-//------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 // system
 #include <string>
 #include <stdexcept>
-//#include <vector>
+#include <vector>
+#include <ranges> // std::views
 #include <type_traits>
 
 
-//------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 // forward declarations
-//------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 // (none)
 
 
-//------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 // constants
-//------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 // (none)
 
 
-//------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 // macros
-//------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 // (none)
 
 
-//------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 // data types
-//------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 
 namespace argparse
 {
@@ -52,6 +53,7 @@ namespace argparse
             constexpr std::false_type always_false {};
 
 
+        /// @todo replace with std::is_constructible in C++23
             /// @brief Type trait to allow CustomType(const std::string&) user-defined types.
             template<typename T, typename = void>
             struct is_string_constructible : std::false_type
@@ -99,35 +101,6 @@ namespace argparse
 {
     class converter
     {
-    private:
-
-        /// @todo may be more fancy looking (and efficient) 
-        template<typename Container>
-        static Container parse_container(const std::string& value)
-        {
-            using ElementType = typename type::traits::container_element_type<Container>::type;
-            Container result;
-            
-            size_t posS = 0;
-            size_t posE = 0;
-            
-            while ((posE = value.find(' ', posS)) != std::string::npos) {
-                if (posE > posS) {
-                    result.insert(result.end(), 
-                        convert<ElementType>(value.substr(posS, posE - posS)));
-                }
-                posS = posE + 1;
-            }
-            
-            // Handle last element
-            if (posS < value.length()) {
-                result.insert(result.end(), 
-                    convert<ElementType>(value.substr(posS)));
-            }
-            
-            return result;
-        }
-
     public:
 
         template<typename T>
@@ -174,8 +147,31 @@ namespace argparse
                 static_assert(type::traits::always_false<T>, "Unsupported type");
             }
         }
+
+    private:
+
+        template<typename Container>
+        static Container parse_container(const std::string& value)
+        {
+            using ElementType = typename type::traits::container_element_type<Container>::type;
+            Container result;
+            
+            for (auto&& part : std::views::split(value, ' ')) {
+                std::string token(part.begin(), part.end());
+                if (!token.empty()) {
+                    result.insert(result.end(),
+                                  convert<ElementType>(token));
+                }
+            }
+            
+            return result;
+        }
     };
 }
 
 
 #endif // !defined(CPPARG_CONVERTER_HPP)
+
+//##################################################################################################
+// End of include/converter.hpp
+//##################################################################################################
