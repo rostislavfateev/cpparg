@@ -121,12 +121,44 @@ namespace argparse
 
         /// @todo may be templated by container type?
         inline void consume(std::vector<std::string>& tokens) {
-            /// @todo implement
+            // Helper lambda to identify optional arguments (@todo may be redundand)
+            auto is_opt = [](const std::string& str) {
+                return str.starts_with("--") && str.size() > 2;
+            };
+
+            if (!is_opt(*tokens.begin())) {
+                throw std::runtime_error("Trying to consume positional argument as optional");
+            }
+            else {
+                consumedOptCount_++;
+                tokens.erase(tokens.begin()); // Remove argument name
+            }
+
+            for (auto&& token : tokens) {
+                if (!is_opt(token)) {
+                    action_(std::forward<std::string>(token));
+                    consumedValCount_++;
+                    tokens.erase(tokens.begin());
+                }
+                else {
+                    // new optional argument encountered
+                    break;
+                }
+            }
         }
 
         inline void help(std::ostream& out = std::cout) const {
             out << description_;
         }
+    
+    private:
+
+        inline bool is_optional() const {
+            return name_.starts_with("--") && name_.size() > 2;
+        }
+
+    public:
+        std::string                 name_;
 
     protected:
 
