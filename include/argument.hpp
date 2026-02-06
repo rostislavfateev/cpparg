@@ -68,14 +68,28 @@ namespace argparse
     public:
 
         /// @brief Represents number of arguments
-        enum class nargs_t : unsigned {
+        struct nargs_t {
+
+            /// @brief Nargs types enumeration.
+            enum class nargs_e : unsigned {
             AT_MOST_ONE,
             ANY,
             AT_LEAST_ONE,
         };
 
-        /// @brief Action function type.
-        using action_f = std::function<void(const std::string&)>;
+            /// @brief Value constructor.
+            /// @param type Type of nargs object.
+            nargs_t(nargs_e type = nargs_e::AT_MOST_ONE) : type_(type) {
+            }
+
+
+            // Data members
+            //
+            nargs_e type_;
+            unsigned consumedOptCount_;
+            unsigned consumedValCount_;
+        }; // End: strct nargs_t
+
 
     public:
 
@@ -101,7 +115,7 @@ namespace argparse
                                                             placeholder = converter::convert<T>(value)
                                                         }
                                                     },
-                 nargs_t                    nargs       = nargs_t::AT_MOST_ONE,
+                 nargs_t                    nargs       = nargs_t(),
                  /// @todo can it be the same type as placeholder?
                  //std::string&&              defaultVal  = "",
                  std::optional<T>           defaultVal  = std::nullopt,
@@ -160,12 +174,20 @@ namespace argparse
     
     private:
 
-        inline bool is_optional() const {
-            return name_.starts_with("--") && name_.size() > 2;
-        }
+        static inline bool is_optional(const std::string& str) {
+            return str.starts_with("--") && str.size() > 2;
+        } // End: is_optional()
+
+        inline bool is_consumed() const {
+            // Typically this is the only case where we can say for sure that argument is consumed.
+            return (nargs_.type_ == nargs_t::nargs_e::AT_MOST_ONE && nargs_.consumedOptCount_ == 1);
+        } // End: is_consumed()
+
 
     public:
         std::string                 name_;
+        bool                        isOptional_;
+        nargs_t                     nargs_;
 
     protected:
 
@@ -175,10 +197,7 @@ namespace argparse
         std::string                 error_;
 
     private:
-
-        std::string                 name_;
-        action_f                    action_;
-        nargs_t                     nargs_;
+        action_t                    action_;
         std::string                 default_;
         std::vector<std::string>    choices_;
         bool                        required_;
