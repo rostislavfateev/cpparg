@@ -51,6 +51,12 @@
 
 namespace argparse
 {
+    /// @brief Concept that restricts argument placeholder types to supported by converter.
+    template<typename T>
+    concept placeholder_t = requires(T t, const std::string& s) {
+        t = converter::convert<T>(s);
+    };
+
     /// @brief Argument implementation
     ///
     /// Encapsulates both positional (required) and optional argument types with
@@ -78,6 +84,7 @@ namespace argparse
         /// @param[in]
         ///
         template<typename T>
+        requires placeholder_t<T>
         argument(std::string&&              name,
                  T&                         placeholder,
                  action_f                   action = [&placeholder](const std::string& value) {
