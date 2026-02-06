@@ -15,11 +15,13 @@
 // system
 #include <string>
 #include <vector>
-//#include <set> //#include <flat_set>
+#include <deque>
+#include <flat_map>
 #include <map>
 #include <functional> // std::function
 #include <algorithm>  // 
 #include <optional>   // std::optional
+#include <variant>    // std::variant
 #include <iostream>   // std::cout
 
 // user
@@ -67,6 +69,9 @@ namespace argparse
     class argument {
     public:
 
+        /// @brief Action function type.
+        using action_t = std::function<void(const std::string&)>;
+
         /// @brief Represents number of arguments
         struct nargs_t {
 
@@ -101,7 +106,7 @@ namespace argparse
         requires placeholder_t<T>
         argument(std::string&&              name,
                  T&                         placeholder,
-                 action_f                   action = [&placeholder](const std::string& value) {
+                 action_t                   action = [&placeholder](const std::string& value) {
                                                         if (value.empty()) {
                                                             if constexpr (std::is_same_v<T,bool>) {
                                                                 placeholder = converter::convert<T>("1");
@@ -122,49 +127,28 @@ namespace argparse
                  /// @todo maybe more clever restriction?
                  std::vector<std::string>&& choices     = { },
                  std::string&&              description = "") :
-                            action_(std::move(actionName), placeholder),
+                            action_(action),
                             nargs_(nargs),
-                            required_(true/*name.contains(--)*/),
+                            isOptional_(is_optional(name)),
                             default_(defaultVal.value_or(T{})),
                             choices_(std::move(choices)),
                             description_(std::move(description)),
-                            consumedOptCount_(0),
-                            consumedValCount_(0),
-                            error_("")
-                            isBool_(constexpr (std::is_same_v<T, bool>))
-                    // restrict action to be capturing always
-                    requires (!std::is_convertible_v<action_f, void(*)()>) {
+                            error_(""),
+                            isBool_(constexpr (std::is_same_v<T, bool>)) {
         }
 
         bool operator<(const argument& other) const {
             return name_ < other.name_;
         }
 
-        /// @todo may be templated by container type?
-        inline void consume(std::vector<std::string>& tokens) {
-            // Helper lambda to identify optional arguments (@todo may be redundand)
-            auto is_opt = [](const std::string& str) {
-                return str.starts_with("--") && str.size() > 2;
-            };
-
-            if (!is_opt(*tokens.begin())) {
-                throw std::runtime_error("Trying to consume positional argument as optional");
-            }
-            else {
-                consumedOptCount_++;
-                tokens.erase(tokens.begin()); // Remove argument name
-            }
-
-            for (auto&& token : tokens) {
-                if (!is_opt(token)) {
-                    action_(std::forward<std::string>(token));
-                    consumedValCount_++;
-                    tokens.erase(tokens.begin());
-                }
-                else {
-                    // new optional argument encountered
-                    break;
-                }
+        inline void consume(std::deque<std::string>& tokens) {
+        /// @todo Problem: better define stopping criteria especially for list arguments,
+        /// as now it stops if consumed or at next optional argument detection.
+            while (!tokens.empty()
+                   && (!is_consumed() || !is_optional(*tokens.begin()))) {
+                action_(std::forward<std::string>(*tokens.begin()));
+                nargs_.consumedValCount_++;
+                tokens.pop_front();
             }
         }
 
@@ -192,15 +176,12 @@ namespace argparse
     protected:
 
         bool                        isBool_;
-        unsigned                    consumedOptCount_;
-        unsigned                    consumedValCount_;
         std::string                 error_;
 
     private:
         action_t                    action_;
         std::string                 default_;
         std::vector<std::string>    choices_;
-        bool                        required_;
         std::string                 description_;
     };
 
@@ -209,28 +190,46 @@ namespace argparse
     ///
     /// A collection of arguments.
     class group {
+
+        using container_variant = std::variant<std::deque<argument>, std::map<std::string, argument>>;
     public:
 
-        group(std::string&& id = "default") : id_(std::move(id)) {
+        group(std::string&& id) : id_(std::move(id)) {
         }
 
         inline void add_argument(argument&& arg) {
-            args_.insert({arg.name_, std::move(arg)});
+            if (arg.isOptional_) {
+                optional_.insert({arg.name_, std::move(arg)});
+        }
+            else {
+                positional_.emplace_back(std::move(arg));
+            }
         }
 
-        inline void consume(std::vector<std::string>& tokens) {
-            auto arg = args_.find(*tokens.begin());
-            if (arg != args_.end()) {
+        inline void consume_optional(std::deque<std::string>& tokens) {
+            auto arg = optional_.find(*tokens.begin());
+            if (arg != optional_.end()) {
+                // strip optional argument of its name.
+                tokens.pop_front();
+                arg->second.nargs_.consumedOptCount_++;
                 arg->second.consume(tokens);
             }
         }
+
+        inline void consume_positional(std::deque<std::string>& tokens) {
+            for (auto& arg : postional_) {
+                arg.consume(tokens);
+            }
+        }
+
 
     public:
         std::string id_;
 
     private:
-        //std::flat_set<argument> args_;
-        std::map<std::string, argument> args_;
+        //std::flat_map<argument> args_;
+        std::deque<argument>            positional_;
+        std::map<std::string, argument> optional_;
     };
 
 
@@ -240,44 +239,50 @@ namespace argparse
     class parser {
     public:
         
-        parser(std::string&& description = "optional") : positional_("positional"),
-                                                         optional_({ description,
-                                                                     std::move(description) }) {
+        parser(std::string&& description = "optional") : groups_({"default", {std::move("default")}}),
+                                                         description_(std::move(description)) {
         }
         
         void add_argument_group(group&& group) {
-            optional_.insert({group.id_, std::move(group)});
+            groups_.insert({group.id_, std::move(group)});
         }
 
-        void add_argument(const std::string& groupName,
-                          argument&& arg) {
-            //auto& target  = (arg.name_)
-            //groupName = (groupName.empty() ? "default" : groupName);
-
+        void add_argument(argument&& arg,
+                          const std::string& groupName = "default") {
+            auto group = groups_.find(groupName);
+            if (group != groups_.end()) {
+                group->second.add_argument(std::move(arg));
+            }
+            else {
+                throw std::runtime_error("Argument group not found: " + groupName);
+            }
         }
 
         void parse_args(size_t argc, char* argv[]) {
-            std::vector<std::string> tokens;
+            std::deque<std::string> tokens;
             for (size_t i = 0; i < argc; ++i) {
                 tokens.emplace_back(argv[i]);
             }
 
             // Consume optional arguments first
-            std::for_each(optional_.begin(), optional_.end(),
+            std::for_each(groups_.begin(), groups_.end(),
                 [&tokens](group& grp) {
-                    grp.consume(tokens);
+                    grp.consume_optional(tokens);
             });
 
             // Then consume positional arguments
-            positional_.consume(tokens);
+            std::for_each(groups_.begin(), groups_.end(),
+                [&tokens](group& grp) {
+                    grp.consume_positional(tokens);
+            });
         }
 
 
     private:
 
-        group                           positional_;
         //std::flat_set<group>    optional_;
-        std::map<std::string, group>    optional_;
+        std::map<std::string, group>    groups_;
+        std::string                     description_;
     };
 
 } // namespace argparse
